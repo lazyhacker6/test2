@@ -1,0 +1,13 @@
+name: labexfil
+on:
+  repository_dispatch:
+    types: [lab]
+permissions:
+  contents: read
+jobs:
+  ex:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "LABEXFIL_RAN_FROM_REPOSITORY_DISPATCH"
+          echo "EVENT=$GITHUB_EVENT_NAME REF=$GITHUB_REF"
