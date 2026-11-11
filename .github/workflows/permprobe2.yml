@@ -1,0 +1,41 @@
+name: permprobe2
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: probe2
+        env:
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          H() { curl -s -o /tmp/o.json -w '%{http_code}' -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "$@"; }
+          PLAIN=$(printf 'plain content write %s\n' "$(date -u +%s)" | base64 -w0)
+          S1=$(H -X PUT "$API/contents/probe-plain.txt" -d "{\"message\":\"plain write\",\"content\":\"$PLAIN\",\"branch\":\"main\"}")
+          echo "PLAIN_CONTENTS_HTTP=$S1 BODY=$(head -c 300 /tmp/o.json)"
+          WF=$(printf 'name: created\non: workflow_dispatch\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo created\n' | base64 -w0)
+          S2=$(H -X PUT "$API/contents/.github/workflows/probe-created.yml" -d "{\"message\":\"wf write\",\"content\":\"$WF\",\"branch\":\"main\"}")
+          echo "WF_CONTENTS_HTTP=$S2 BODY=$(head -c 300 /tmp/o.json)"
+          HEAD_SHA=$(curl -s -H "Authorization: Bearer $T" "$API/git/ref/heads/main" | python3 -c 'import json,sys;print(json.load(sys.stdin)["object"]["sha"])')
+          TREE_SHA=$(curl -s -H "Authorization: Bearer $T" "$API/git/commits/$HEAD_SHA" | python3 -c 'import json,sys;print(json.load(sys.stdin)["tree"]["sha"])')
+          E1=$(printf 'tree plain probe\n' | base64 -w0)
+          B1=$(curl -s -X POST -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "$API/git/blobs" -d "{\"content\":\"$E1\",\"encoding\":\"base64\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("sha","ERR"))')
+          S3=$(H -X POST "$API/git/trees" -d "{\"base_tree\":\"$TREE_SHA\",\"tree\":[{\"path\":\"probe-tree-plain.txt\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"$B1\"}]}")
+          echo "TREE_PLAIN_HTTP=$S3 BODY=$(head -c 300 /tmp/o.json)"
+          NT1=$(python3 -c 'import json;print(json.load(open("/tmp/o.json")).get("sha","ERR"))')
+          E2=$(printf 'name: created2\non: workflow_dispatch\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo created2\n' | base64 -w0)
+          B2=$(curl -s -X POST -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "$API/git/blobs" -d "{\"content\":\"$E2\",\"encoding\":\"base64\"}" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("sha","ERR"))')
+          S4=$(H -X POST "$API/git/trees" -d "{\"base_tree\":\"$TREE_SHA\",\"tree\":[{\"path\":\".github/workflows/probe-tree.yml\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"$B2\"}]}")
+          echo "TREE_WF_HTTP=$S4 BODY=$(head -c 300 /tmp/o.json)"
+          NT2=$(python3 -c 'import json;print(json.load(open("/tmp/o.json")).get("sha","ERR"))')
+          C1=$(curl -s -X POST -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "$API/git/commits" -d "{\"message\":\"plain tree commit\",\"tree\":\"$NT1\",\"parents\":[\"$HEAD_SHA\"]}" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("sha","ERR"))')
+          echo "COMMIT_PLAIN=$C1"
+          S5=$(H -X PATCH "$API/git/refs/heads/main" -d "{\"sha\":\"$C1\",\"force\":false}")
+          echo "REF_PLAIN_HTTP=$S5 BODY=$(head -c 400 /tmp/o.json)"
+          S6=$(H -X POST "$API/dispatches" -d '{"event_type":"probe","client_payload":{"x":1}}')
+          echo "DISPATCH_HTTP=$S6 BODY=$(head -c 300 /tmp/o.json)"
+          S7=$(H -X POST "$API/git/refs" -d "{\"ref\":\"refs/heads/probe-branch\",\"sha\":\"$HEAD_SHA\"}")
+          echo "CREATE_REF_HTTP=$S7 BODY=$(head -c 300 /tmp/o.json)"
